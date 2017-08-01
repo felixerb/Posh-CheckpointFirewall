@@ -1,5 +1,5 @@
-$Script:HostName = $null
-$Script:SessionID = $null
+[string] $Script:HostName = $null
+[string] $Script:SessionID = $null
 
 Function Invoke-ckpWebRequest
 {
@@ -11,11 +11,7 @@ Function Invoke-ckpWebRequest
 
         ,[Parameter(Mandatory)]
         [ValidateNotNull()]
-        [string[]] $Commands
-
-        ,[Parameter(Mandatory)]
-        [ValidateSet("POST","GET")]
-        [string] $Method
+        [string] $Command
 
         ,[Parameter(ParameterSetName = 'Session')]
         [Parameter(ParameterSetName = 'Credential')]
@@ -35,11 +31,11 @@ Function Invoke-ckpWebRequest
         Host   = $HostName
         Scheme = "https"
         Port   = "443"
-        Path   = "web_api/" + ($Commands -join "/")
+        Path   = "web_api/" + $Command
     }
 
     $requestParams = @{
-        Method      = $Method
+        Method      = 'POST'
         Uri         = ($requestUri.ToString())
         ContentType = 'application/json'
     }
@@ -71,6 +67,27 @@ Function Invoke-ckpWebRequest
     return $response
 }
 
+Function Get-ckpInternalSession
+{
+    if ([string]::IsNullOrEmpty($SessionID) -or [string]::IsNullOrEmpty($Script:HostName))
+    {
+        return $null
+    }
+
+    return @{
+        HostName  = $Script:HostName
+        SessionID = $Script:SessionID
+    }
+}
+
+Function Get-ckpSession
+{
+    [CmdletBinding()]
+    Param(
+
+    )
+}
+
 Function Register-ckpSession
 {
     [CmdletBinding()]
@@ -96,6 +113,10 @@ Function Register-ckpSession
     return $response
 }
 
+Function Unregister-ckpSession
+{
+    [CmdletBinding()]
+}
 
 Function Get-ckpNetwork
 {
@@ -103,23 +124,14 @@ Function Get-ckpNetwork
     Param(
         [Parameter(ParameterSetName = 'Name')]
         [ValidateNotNullOrEmpty()]
-        [string] $NetworkName
+        [string] $Name
 
         ,[Parameter(ParameterSetName = 'UID')]
-        [string] $NetworkUID
-
-        ,[Parameter(ParameterSetName = 'Name')]
-        [Parameter(ParameterSetName = 'UID')]
-        [ValidateNotNullOrEmpty()]
-        [string]$SessionID = $Script:SessionID
-
-        ,[Parameter(ParameterSetName = 'Name')]
-        [Parameter(ParameterSetName = 'UID')]
-        [ValidateNotNullOrEmpty()]
-        [string]$HostName = $Script:HostName
+        [string] $UID
     )
 
-    if ([string]::IsNullOrEmpty($SessionID) -or [string]::IsNullOrEmpty($HostName))
+    $session = Get-ckpInternalSession
+    if (-Not $session)
     {
         throw "You are not logged in please run 'Register-ckpSession'"
     }
@@ -128,18 +140,17 @@ Function Get-ckpNetwork
         limit = 100
     }
 
-    if (-Not([string]::IsNullOrEmpty($NetworkName)))
+    if (-Not([string]::IsNullOrEmpty($Name)))
     {
         $command = 'show-network'
         $body = @{
-            name = $NetworkName
+            name = $Name
         }
     }
 
     $requestParams = @{
         HostName  = $HostName
-        Method    = 'POST'
-        Commands  = @($command)
+        Command   = $command
         SessionID = $SessionID
         Body      = $body
     }
