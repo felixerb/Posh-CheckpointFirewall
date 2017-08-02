@@ -96,7 +96,7 @@ Function Invoke-ckpWebRequest
     else
     {
         Write-Debug "Using Credential Authentication"
-        $Body = @{
+        $Body += @{
             user     = $Credential.UserName
             password = $Credential.GetNetworkCredential().Password
         }
@@ -114,18 +114,26 @@ Function Invoke-ckpWebRequest
     Write-Debug "REST CALL: '$($requestUri.ToString())'"
     try
     {
-        return Invoke-RestMethod @requestParams -Verbose:$VerbosePreference -Debug:$DebugPreference
+        $response = Invoke-RestMethod @requestParams -Verbose:$VerbosePreference -Debug:$DebugPreference
+        return $response
     }
     catch [System.Net.WebException]
     {
         $httpError = $_
+        $errorStream = $httpError.Exception.Response.GetResponseStream()
+        $errorReader = New-Object System.IO.StreamReader($errorStream)
+        $errorReader.BaseStream.Position = 0
+        $errorReader.DiscardBufferedData()
+        $errorResponse = ($errorReader.ReadToEnd()) | ConvertFrom-Json
+
         if ($httpError.Exception.Response.StatusCode -eq [Net.HttpStatusCode]::NotFound)
         {
             return $null
         }
         else
         {
-            throw $httpError
+            #throw $httpError
+            throw "Error ($([int]$httpError.Exception.Response.StatusCode) - $($httpError.Exception.Response.StatusCode.ToString())): Code '$($errorResponse.code)' Message: '$($errorResponse.message)'"
         }
     }
 }
@@ -155,9 +163,10 @@ Function Get-ckpInternalSession
     }
 
     return @{
-        HostName   = $Script:HostName
-        SessionID  = $Script:SessionID
-        SessionUID = $Script:SessionUID
+        HostName     = $Script:HostName
+        SessionID    = $Script:SessionID
+        SessionUID   = $Script:SessionUID
+        SessionStart = $Script:SessionStart
     }
 }
 
@@ -245,18 +254,43 @@ Function Connect-ckpSession
         ,[Parameter(Mandatory)]
         [ValidateNotNull()]
         [PSCredential] $Credential
+
+        ,[Parameter()]
+        [switch] $ContinueLastSession
+
+        ,[Parameter()]
+        [ValidateRange(1,800)]
+        [int] $Timeout
     )
 
     $requestParams = @{
         HostName   = $HostName
         Command    = 'login'
         Credential = $Credential
+        Body       = @{
+            "session-name" = "ps-${env:COMPUTERNAME}-$($Credential.UserName)"
+        }
     }
+
+    if ($ContinueLastSession)
+    {
+        $requestParams['Body'] += @{
+            "continue-last-session" = $true
+        }
+    }
+
+    if ($Timeout -gt 0)
+    {
+        $requestParams['Body'] += @{
+            "session-timeout" = $Timeout
+        }
+    }
+
     $response = Invoke-ckpWebRequest @requestParams
     $Script:HostName = $HostName
     $Script:SessionID = $response.sid
     $Script:SessionUID = $response.uid
-    $Script:SessionStartTime = (Get-Date)
+    $Script:SessionStart = (Get-Date)
     return $response
 }
 
@@ -309,7 +343,11 @@ Function Publish-ckpSession
     Publish-ckpSession
     #>
     [CmdletBinding()]
-    Param()
+    Param(
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string] $Uid
+    )
 
     $session = Get-ckpInternalSession
     if (-Not $session)
@@ -321,6 +359,12 @@ Function Publish-ckpSession
         HostName  = $session.HostName
         Command   = 'publish'
         SessionID = $session.SessionID
+    }
+    if (-Not([string]::IsNullOrEmpty($Uid)))
+    {
+        $requestParams['Body'] = @{
+            uid = $Uid
+        }
     }
     return Invoke-ckpWebRequest @requestParams
 }
@@ -340,7 +384,11 @@ Function Undo-ckpSession
     Undo-ckpSession
     #>
     [CmdletBinding()]
-    Param()
+    Param(
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string] $Uid
+    )
 
     $session = Get-ckpInternalSession
     if (-Not $session)
@@ -353,10 +401,80 @@ Function Undo-ckpSession
         Command   = 'discard'
         SessionID = $session.SessionID
     }
+    if (-Not([string]::IsNullOrEmpty($Uid)))
+    {
+        $requestParams['Body'] = @{
+            uid = $Uid
+        }
+    }
+
     return Invoke-ckpWebRequest @requestParams
 }
 
+Function Reset-ckpSessionTimeout
+{
+    [CmdletBinding()]
+    Param(
+        [Parameter()]
+        [switch] $Force
+    )
+    $session = Get-ckpInternalSession
+    if (-Not $session)
+    {
+        return
+    }
+    if ((-Not($Force)) -and (((Get-Date) - $session.SessionStart).TotalSeconds -lt 530))
+    {
+        return
+    }
+     $requestParams = @{
+        HostName  = $session.HostName
+        Command   = 'keepalive'
+        SessionID = $session.SessionID
+    }
+    return Invoke-ckpWebRequest @requestParams
+}
 
+Function Switch-ckpSession
+{
+    <#
+    .SYNOPSIS
+    Switches from the current session to the provided session
+
+    .DESCRIPTION
+    not
+
+    .EXAMPLE
+    Switch-ckpSession
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string] $Uid
+    )
+
+    $session = Get-ckpInternalSession
+    if (-Not $session)
+    {
+        return
+    }
+
+    $requestParams = @{
+        HostName  = $session.HostName
+        Command   = 'switch-session'
+        SessionID = $session.SessionID
+        Body      = @{
+            uid = $Uid
+        }
+    }
+
+    $response =  Invoke-ckpWebRequest @requestParams
+    return $response
+    #$Script:SessionID = $response.sid
+    $Script:SessionUID = $response.uid
+    #$Script:SessionStartTime = (Get-Date)
+}
 Function Get-internalObject
 {
     <#
@@ -426,6 +544,13 @@ Function Get-internalObject
 
         ,[Parameter(ParameterSetName = 'Generic')]
         [switch] $GetAll
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'Name')]
+        [Parameter(ParameterSetName = 'UID')]
+        [ValidateNotNull()]
+        [hashtable] $AdditionalProperties
+
     )
 
     $session = Get-ckpInternalSession
@@ -465,6 +590,11 @@ Function Get-internalObject
                 $body['limit'] = $Limit
             }
         }
+    }
+
+    if ($AdditionalProperties -ne $null)
+    {
+        $body += $AdditionalProperties
     }
 
     $requestParams = @{
@@ -912,8 +1042,11 @@ Function Set-ckpGroup
 
        ,[Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
         [Parameter(ParameterSetName = 'Uid')]
-        [ValidateNotNull()]
-        [string[]] $Member
+        [string[]] $AddMember
+
+       ,[Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
+        [Parameter(ParameterSetName = 'Uid')]
+        [string[]] $RemoveMember
 
        ,[Parameter(ParameterSetName = 'Name')]
         [Parameter(ParameterSetName = 'Uid')]
@@ -940,9 +1073,18 @@ Function Set-ckpGroup
             "$($PSCmdlet.ParameterSetName.ToLower())" = (Get-Variable -Name $($PSCmdlet.ParameterSetName) -ValueOnly)
         }
 
-        if ($Member -ne $null)
+        if (($AddMember -ne $null) -and ($AddMember.Count -gt 0))
         {
-            $body['members'] = $Member
+            $body['members'] += @{
+                add = $AddMember
+            }
+        }
+
+        if (($RemoveMember -ne $null) -and ($RemoveMember.Count -gt 0))
+        {
+            $body['members'] += @{
+                remove = $RemoveMember
+            }
         }
 
         if (-Not ([string]::IsNullOrEmpty($NewName)))
@@ -963,4 +1105,301 @@ Function Set-ckpGroup
         }
         return Invoke-ckpWebRequest @requestParams
     }
+}
+
+Function Get-ckpObject
+{
+    [CmdletBinding(DefaultParameterSetName = 'Generic')]
+    Param(
+        [Parameter(ParameterSetName = 'Name')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+
+        ,[Parameter(ParameterSetName = 'UID')]
+        [string] $UID
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'UID')]
+        [Parameter(ParameterSetName = 'Name')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Type
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [ValidateNotNull()]
+        [int] $Offset
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [ValidateRange(1,500)]
+        [int] $Limit
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [switch] $GetAll
+
+    )
+    $params = @{}
+    Foreach ($boundParam in $PSBoundParameters.GetEnumerator())
+    {
+        if ($boundParam.Key -ieq 'Type')
+        {
+            $params['AdditionalProperties'] = @{
+                type = $boundParam.Value
+            }
+            continue
+        }
+        $params[$boundParam.Key] = $boundParam.Value
+    }
+    return Get-internalObject @params -CommandSingularName 'object' -CommandPluralName 'objects'
+}
+
+Function Get-ckpCommand
+{
+    [CmdletBinding()]
+    Param(
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+    )
+
+    $session = Get-ckpInternalSession
+    if (-Not $session)
+    {
+        throw "You are not logged in please run 'Connect-ckpSession'"
+    }
+    $requestParams = @{
+        HostName  = $session.HostName
+        Command   = 'show-commands'
+        SessionID = $session.SessionID
+    }
+    if (-Not([string]::IsNullOrEmpty($Name)))
+    {
+        $requestParams['Body'] = @{
+            prefix = $Name
+        }
+    }
+    $response = Invoke-ckpWebRequest @requestParams
+    if (($response -ne $null) -and (($response | Get-Member -MemberType NoteProperty -Name 'commands') -ne $null))
+    {
+        return $response.commands
+    }
+    return $response
+}
+
+Function Get-ckpGateway
+{
+    [CmdletBinding()]
+    Param(
+        [Parameter()]
+        [ValidateNotNull()]
+        [int] $Offset
+
+        ,[Parameter()]
+        [ValidateRange(1,500)]
+        [int] $Limit
+
+        ,[Parameter()]
+        [switch] $GetAll
+    )
+
+    $session = Get-ckpInternalSession
+    if (-Not $session)
+    {
+        throw "You are not logged in please run 'Connect-ckpSession'"
+    }
+    $body = @{
+        limit = 100
+    }
+
+    if ($Offset -ne $null)
+    {
+        $body['offset'] = $Offset
+    }
+    if ($Limit -ne $null)
+    {
+        $body['limit'] = $Limit
+    }
+
+    $requestParams = @{
+        HostName  = $session.HostName
+        Command   = 'show-gateways-and-servers'
+        SessionID = $session.SessionID
+        Body      = $body
+    }
+    $response = Invoke-ckpWebRequest @requestParams
+    $returnValue = $response
+    if (($response -ne $null) -and (($response | Get-Member -MemberType NoteProperty -Name objects) -ne $null))
+    {
+        $returnValue = $response.objects
+        while (
+            ($GetAll) -and
+            (
+                (($Limit -ne $null) -and ($response.objects.Count -ge $Limit)) -or
+                (($Limit -eq $null) -and ($response.objects.Count -ge 50))
+            )
+        )
+        {
+            $requestParams['Body']['offset'] = $response.objects.Count
+            $requestParams['Body']['limit'] = 500
+            $Limit = 500
+            $response = Invoke-ckpWebRequest @requestParams
+            $returnValue += $response.objects
+        }
+    }
+    return $returnValue
+}
+
+New-Alias -Name Get-ckpServer -Value Get-ckpGateway
+
+Function Get-ckpObjectUsage
+{
+     [CmdletBinding(DefaultParameterSetName = 'Uid')]
+    Param(
+        [Parameter(Mandatory, ParameterSetName = 'Name')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+
+       ,[Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'Uid')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Uid
+    )
+    Begin
+    {
+        $session = Get-ckpInternalSession
+        if (-Not $session)
+        {
+            throw "You are not logged in please run 'Connect-ckpSession'"
+        }
+    }
+
+    Process
+    {
+        $body = @{
+            "$($PSCmdlet.ParameterSetName.ToLower())" = (Get-Variable -Name $($PSCmdlet.ParameterSetName) -ValueOnly)
+        }
+
+        $requestParams = @{
+            HostName  = $session.HostName
+            Command   = 'where-used'
+            SessionID = $session.SessionID
+            Body      = $body
+        }
+        return Invoke-ckpWebRequest @requestParams
+    }
+}
+
+Function Get-ckpValidation
+{
+    [CmdletBinding()]
+    Param()
+
+    $session = Get-ckpInternalSession
+    if (-Not $session)
+    {
+        throw "You are not logged in please run 'Connect-ckpSession'"
+    }
+
+    $requestParams = @{
+        HostName  = $session.HostName
+        Command   = 'show-validations'
+        SessionID = $session.SessionID
+    }
+    return Invoke-ckpWebRequest @requestParams
+}
+
+Function Get-ckpPackage
+{
+    [CmdletBinding(DefaultParameterSetName = 'Generic')]
+    Param(
+        [Parameter(ParameterSetName = 'Name')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+
+        ,[Parameter(ParameterSetName = 'UID')]
+        [string] $UID
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [ValidateNotNull()]
+        [int] $Offset
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+         [ValidateRange(1,500)]
+        [int] $Limit
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [switch] $GetAll
+    )
+
+    return Get-internalObject @PSBoundParameters -CommandSingularName 'package' -CommandPluralName 'packages'
+}
+
+Function Get-ckpTask
+{
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string] $Id
+    )
+
+    $session = Get-ckpInternalSession
+    if (-Not $session)
+    {
+        throw "You are not logged in please run 'Connect-ckpSession'"
+    }
+
+    $requestParams = @{
+        HostName  = $session.HostName
+        Command   = 'show-task'
+        SessionID = $session.SessionID
+        Body      = @{
+            "task-id" = $Id
+        }
+    }
+
+    $response = Invoke-ckpWebRequest @requestParams
+    if (($response -ne $null) -and (($response | Get-Member -MemberType NoteProperty -Name 'tasks') -ne $null))
+    {
+        return $response.tasks
+    }
+    return $response
+}
+
+Function Install-ckpPolicy
+{
+    [CmdletBinding()]
+    Param(
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string] $Package
+
+       ,[Parameter()]
+        [ValidateNotNull()]
+        [string[]] $Target
+    )
+
+    $session = Get-ckpInternalSession
+    if (-Not $session)
+    {
+        throw "You are not logged in please run 'Connect-ckpSession'"
+    }
+
+    $requestParams = @{
+        HostName  = $session.HostName
+        Command   = 'install-policy'
+        SessionID = $session.SessionID
+    }
+
+    if (-Not([string]::IsNullOrEmpty($Package)))
+    {
+        $requestParams['Body'] += @{
+            "policy-package" = $Package
+        }
+    }
+    if (($Target -ne $null) -and ($Target.Count -gt 0))
+    {
+        $requestParams['Body'] += @{
+            "targets" = $Target
+        }
+    }
+
+    return Invoke-ckpWebRequest @requestParams
 }

@@ -4,20 +4,44 @@ $userCredential = [PSCredential]::new(
     (ConvertTo-SecureString -String 'RHrMU84*0d99' -AsPlainText -Force)
 )
 
+$firewallCredential = $userCredential
+
 $baseScriptPath = $psScriptRoot
 if (($psEditor -ne $null) -and ([string]::IsNullOrEmpty($baseScriptPath)))
 {
     $baseScriptPath = ([Io.FileInfo]$psEditor.GetEditorContext().CurrentFile.Path).Directory.FullName
 }
 
-Get-Module -Name vfCheckpointFirewall | Remove-Module
+Get-Module -Name vfCheckpointFirewall | Remove-Module -Force
 Import-Module -Name $baseScriptPath\vfCheckpointFirewall.psd1
 
 $HostName = "10.221.4.6"
-Connect-ckpSession -HostName $HostName -Credential $userCredential
+Connect-ckpSession -HostName $HostName -Credential $userCredential -ContinueLastSession
+
+#region session tests
+$sessions = Get-ckpSession -Limit 500 -GetAll
+
+$sessions | % { Undo-ckpSession -Uid $_}
+
+$sessions.Count
+$sessions[0] | fl
+
+Switch-ckpSession -Uid 'e72455c5-07e5-4b07-9e91-162e2a33bd8c'
+Reset-ckpSessionTimeout
+Disconnect-ckpSession
+#endregion
+
+Get-ckpGateway -GetAll
+Get-ckpServer
+
+$d = Get-ckpCommand -Name 'show'
+Get-ckpObject -Type 'application-site'
 
 $networks = Get-ckpNetwork -Limit 500 -GetAll
 
+Get-ckpObjectUsage -Uid $networks[0].uid
+
+$networks | Select -First 50 | Format-Table name, subnet4, mask-length4, subnet-mask -AutoSize
 
 $azurePath = Join-Path -Path $env:USERPROFILE -ChildPath "desktop/PublicIPs_20170731.xml"
 [xml]$azureXml = Get-Content -Path $azurePath
@@ -56,7 +80,7 @@ if (-Not $group)
 $group.members.Count
 
 
-Undo-ckpSession
+
 
 Publish-ckpSession
 
@@ -74,6 +98,15 @@ $lastMember = $member[-1]
 Set-ckpGroup -Name $groupName -Member $newMember
 
 
+$sess = Get-ckpSession
+
+$sess[0]
+
+Undo-ckpSession -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
+
 Remove-ckpNetwork -Uid $lastNetwork.uid
 
 #Invoke-WebRequest -Uri 'https://download.microsoft.com/download/0/1/8/018E208D-54F8-44CD-AA26-CD7BC9524A8C/' -OutFile "huhu.xml"
+
+#policy package
+

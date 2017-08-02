@@ -16,10 +16,32 @@
     # FormatsToProcess = @()
 
     # NestedModules = @()
-    FunctionsToExport = '*'
+    FunctionsToExport = @(
+        'Add-ckpGroup'
+        ,'Add-ckpNetwork'
+        ,'Connect-ckpSession'
+        ,'Disconnect-ckpSession'
+        ,'Get-ckpCommand'
+        ,'Get-ckpGateway'
+        ,'Get-ckpGroup'
+        ,'Get-ckpNetwork'
+        ,'Get-ckpObject'
+        ,'Get-ckpSession'
+        ,'Publish-ckpSession'
+        ,'Remove-ckpNetwork'
+        ,'Reset-ckpSessionTimeout'
+        ,'Set-ckpGroup'
+        ,'Switch-ckpSession'
+        ,'Undo-ckpSession'
+        ,'Get-ckpObjectUsage'
+        ,'Get-ckpValidation'
+        ,'Get-ckpPackage'
+        ,'Install-ckpPolicy'
+        ,'Get-ckpTask'
+    )
     CmdletsToExport   = @()
     # VariablesToExport = @()
-    AliasesToExport   = @()
+    AliasesToExport   = @('Get-ckpServer')
     # DscResourcesToExport = @()
     # ModuleList = @()
     # FileList = @()
