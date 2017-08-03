@@ -1,15 +1,14 @@
 #Requires -Version 4
-$userCredential = [PSCredential]::new(
-    'apiadmin',
-    (ConvertTo-SecureString -String 'RHrMU84*0d99' -AsPlainText -Force)
-)
-
-$firewallCredential = $userCredential
+$userCredential = Get-Credential -UserName apiadmin
 
 $baseScriptPath = $psScriptRoot
 if (($psEditor -ne $null) -and ([string]::IsNullOrEmpty($baseScriptPath)))
 {
     $baseScriptPath = ([Io.FileInfo]$psEditor.GetEditorContext().CurrentFile.Path).Directory.FullName
+}
+elseif (($psISE -ne $null) -and (Tes-Path -Path $psISE.CurrentFile.FullPath))
+{
+    $baseScriptPath = ([Io.FileInfo]$psISE.CurrentFile.FullPath).Directory.FullName
 }
 
 Get-Module -Name vfCheckpointFirewall | Remove-Module -Force
@@ -106,7 +105,5 @@ Undo-ckpSession -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
 
 Remove-ckpNetwork -Uid $lastNetwork.uid
 
-#Invoke-WebRequest -Uri 'https://download.microsoft.com/download/0/1/8/018E208D-54F8-44CD-AA26-CD7BC9524A8C/' -OutFile "huhu.xml"
 
-#policy package
-
+Get-ckpPackage

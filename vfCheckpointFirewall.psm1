@@ -114,7 +114,7 @@ Function Invoke-ckpWebRequest
     Write-Debug "REST CALL: '$($requestUri.ToString())'"
     try
     {
-        $response = Invoke-RestMethod @requestParams -Verbose:$VerbosePreference -Debug:$DebugPreference
+        $response = Invoke-RestMethod @requestParams -Verbose:$false -Debug:$DebugPreference
         return $response
     }
     catch [System.Net.WebException]
@@ -605,22 +605,25 @@ Function Get-internalObject
     }
     $response = Invoke-ckpWebRequest @requestParams
     $returnValue = $response
-    if (($response -ne $null) -and (($response | Get-Member -MemberType NoteProperty -Name objects) -ne $null))
+    $childrenNode = $response | Get-Member -MemberType NoteProperty |
+                    Where-Object {($_.Name -ieq 'objects') -or ($_.Name -ieq $CommandPluralName)} |
+                    Select-Object -First 1 | Select-Object -ExpandProperty Name
+    if (($response -ne $null) -and ($childrenNode -ne $null))
     {
-        $returnValue = $response.objects
+        $returnValue = $response.$($childrenNode)
         while (
             ($GetAll) -and
             (
-                (($Limit -ne $null) -and ($response.objects.Count -ge $Limit)) -or
-                (($Limit -eq $null) -and ($response.objects.Count -ge 50))
+                (($Limit -ne $null) -and ($response.$($childrenNode).Count -ge $Limit)) -or
+                (($Limit -eq $null) -and ($response.$($childrenNode).Count -ge 50))
             )
         )
         {
-            $requestParams['Body']['offset'] = $response.objects.Count
+            $requestParams['Body']['offset'] = $response.$($childrenNode).Count
             $requestParams['Body']['limit'] = 500
             $Limit = 500
             $response = Invoke-ckpWebRequest @requestParams
-            $returnValue += $response.objects
+            $returnValue += $response.$($childrenNode)
         }
     }
     return $returnValue
@@ -1328,7 +1331,12 @@ Function Get-ckpPackage
         [switch] $GetAll
     )
 
-    return Get-internalObject @PSBoundParameters -CommandSingularName 'package' -CommandPluralName 'packages'
+    $response = Get-internalObject @PSBoundParameters -CommandSingularName 'package' -CommandPluralName 'packages'
+    if (($response -ne $null) -and (($response | Get-Member -MemberType NoteProperty -Name 'tasks') -ne $null))
+    {
+        return $response.tasks
+    }
+    return $response
 }
 
 Function Get-ckpTask
