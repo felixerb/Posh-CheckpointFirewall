@@ -71,6 +71,7 @@ Function Invoke-ckpWebRequest
         }
     }
 "@
+    #Allow invalid ssl certificates (e.g. self signed)
     [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 
 
@@ -120,6 +121,8 @@ Function Invoke-ckpWebRequest
     catch [System.Net.WebException]
     {
         $httpError = $_
+
+        #Retrieve the error response to get error details
         $errorStream = $httpError.Exception.Response.GetResponseStream()
         $errorReader = New-Object System.IO.StreamReader($errorStream)
         $errorReader.BaseStream.Position = 0
@@ -206,6 +209,9 @@ Function Get-ckpSession
 
     .EXAMPLE
     Get-ckpSession -Uid $sessUid
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-sessions~v1.1
     #>
     [CmdletBinding(DefaultParameterSetName = 'Generic')]
     Param(
@@ -242,8 +248,25 @@ Function Connect-ckpSession
     .PARAMETER Credential
     Username and password used to authenticate to checkpoint
 
+    .PARAMETER ContinueLastSession
+    If set the last inactive session will be reactivated instead of creating a new session
+    This will cause an error if there are multiple inactive sessions
+
+    .PARAMETER Timeout
+    Set the session timeout in seconds
+    The default timeout is 600 seconds
+
     .EXAMPLE
     Connect-ckpSession -HostName $HostName -Credential $cred
+
+    .EXAMPLE
+    Connect-ckpSession -HostName $HostName -Credential $cred -ContinueLastSession
+
+    .EXAMPLE
+    Connect-ckpSession -HostName $HostName -Credential $cred -Timeout 100
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/login~v1.1
     #>
     [CmdletBinding()]
     Param(
@@ -306,6 +329,9 @@ Function Disconnect-ckpSession
 
     .EXAMPLE
     Disconnect-ckpSession
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/logout~v1.1
     #>
     [CmdletBinding()]
     Param()
@@ -339,80 +365,133 @@ Function Publish-ckpSession
     Only after a publish changes will be visible for others
     Function will do nothing if no session is currently open
 
+    .PARAMETER Uid
+    The uid of a 'different' session whose changes shall be published.
+    If obmittet the current session will be published.
+
     .EXAMPLE
     Publish-ckpSession
+
+    .EXAMPLE
+    Publish-ckpSession -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/publish~v1.1
     #>
     [CmdletBinding()]
     Param(
-        [Parameter()]
+        [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [ValidateNotNullOrEmpty()]
         [string] $Uid
     )
-
-    $session = Get-ckpInternalSession
-    if (-Not $session)
+    Begin
     {
-        return
-    }
-
-    $requestParams = @{
-        HostName  = $session.HostName
-        Command   = 'publish'
-        SessionID = $session.SessionID
-    }
-    if (-Not([string]::IsNullOrEmpty($Uid)))
-    {
-        $requestParams['Body'] = @{
-            uid = $Uid
+        $session = Get-ckpInternalSession
+        if (-Not $session)
+        {
+            return
         }
     }
-    return Invoke-ckpWebRequest @requestParams
+
+    Process
+    {
+        $requestParams = @{
+            HostName  = $session.HostName
+            Command   = 'publish'
+            SessionID = $session.SessionID
+        }
+        if (-Not([string]::IsNullOrEmpty($Uid)))
+        {
+            $requestParams['Body'] = @{
+                uid = $Uid
+            }
+        }
+        return Invoke-ckpWebRequest @requestParams
+    }
 }
 
 Function Undo-ckpSession
 {
     <#
     .SYNOPSIS
-    Discards all changes made in the current session
+    Discards all changes made in the specified session
 
     .DESCRIPTION
     Discards all changes made in the current session
     Resets the session, opposite of publish changes
     Function will do nothing if no session is currently open
+    If Uid parameter is provied changes of the specified session will be discarded.
+    If other session is inactive it will be closed if all changes have been discarded.
+
+    .PARAMETER Uid
+    The uid of a 'different' session whose changes shall be discarded
+    If obmitted the changes of the current session will be discarded
 
     .EXAMPLE
     Undo-ckpSession
+
+    .EXAMPLE
+    Undo-ckpSession -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/discard~v1.1
     #>
     [CmdletBinding()]
     Param(
-        [Parameter()]
+        [Parameter(ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [ValidateNotNullOrEmpty()]
         [string] $Uid
     )
-
-    $session = Get-ckpInternalSession
-    if (-Not $session)
+    Begin
     {
-        return
-    }
-
-    $requestParams = @{
-        HostName  = $session.HostName
-        Command   = 'discard'
-        SessionID = $session.SessionID
-    }
-    if (-Not([string]::IsNullOrEmpty($Uid)))
-    {
-        $requestParams['Body'] = @{
-            uid = $Uid
+        $session = Get-ckpInternalSession
+        if (-Not $session)
+        {
+            return
         }
     }
 
-    return Invoke-ckpWebRequest @requestParams
+    Process
+    {
+        $requestParams = @{
+            HostName  = $session.HostName
+            Command   = 'discard'
+            SessionID = $session.SessionID
+        }
+        if (-Not([string]::IsNullOrEmpty($Uid)))
+        {
+            $requestParams['Body'] = @{
+                uid = $Uid
+            }
+        }
+
+        return Invoke-ckpWebRequest @requestParams
+    }
 }
 
 Function Reset-ckpSessionTimeout
 {
+    <#
+    .SYNOPSIS
+    Extends the session timeout of the current session
+
+    .DESCRIPTION
+    If the session will expire in less than 30 seconds a command will be sent to the api
+    to extend the session by the timeout intervall of the session
+    If session will not expire in less then 30 seconds no request will be made unless the Force flag is set
+
+    .PARAMETER Force
+    Will force to extend the session even if the session will not expire for more than 30 seconds
+
+    .EXAMPLE
+    Reset-ckpSessionTimeout
+
+    .EXAMPLE
+    Reset-ckpSessionTimeout -Force
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/keepalive~v1.1
+    #>
     [CmdletBinding()]
     Param(
         [Parameter()]
@@ -442,10 +521,18 @@ Function Switch-ckpSession
     Switches from the current session to the provided session
 
     .DESCRIPTION
-    not
+    Switches from the current session to another inactive session of the same user
+    If source session has no changes it will disappear after the switch.
+    Source session will persist as inactive session if changes where made on the session that have not been published yet.
+
+    .PARAMETER Uid
+    The Uid of the session to switch to
 
     .EXAMPLE
-    Switch-ckpSession
+    Switch-ckpSession -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/switch-session~v1.1
     #>
     [CmdletBinding()]
     Param(
@@ -470,10 +557,8 @@ Function Switch-ckpSession
     }
 
     $response =  Invoke-ckpWebRequest @requestParams
-    return $response
-    #$Script:SessionID = $response.sid
     $Script:SessionUID = $response.uid
-    #$Script:SessionStartTime = (Get-Date)
+    return $response
 }
 Function Get-internalObject
 {
@@ -510,6 +595,9 @@ Function Get-internalObject
     .PARAMETER GetAll
     Switch if set, multiple api calls with the specified limit are made
     until all available objects are retrieved.
+
+    .PARAMETER AdditionalProperties
+    Hashtable with additional properties that shall be passed to the request
 
     .EXAMPLE
     Get-internalObject -CommandSingularName 'network' -CommandPluralName 'networks' -GetAll
@@ -665,6 +753,9 @@ Function Get-ckpNetwork
 
     .EXAMPLE
     Get-ckpNetwork -Limit 500 -GetAll
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-networks~v1.1
     #>
     [CmdletBinding(DefaultParameterSetName = 'Generic')]
     Param(
@@ -727,6 +818,9 @@ Function Add-ckpNetwork
 
     .EXAMPLE
     Add-ckpNetwork -Name 'someNet' -Subnet '10.221.0.1' -MaskLength 28
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/add-network~v1.1
     #>
 
     [CmdletBinding(DefaultParameterSetName = 'Generic')]
@@ -842,6 +936,9 @@ Function Remove-ckpNetwork
 
     .EXAMPLE
     Remove-ckpNetwork -Uid $networkId
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/delete-network~v1.1
     #>
     [CmdletBinding(DefaultParameterSetName = 'Name')]
     Param(
@@ -911,6 +1008,9 @@ Function Get-ckpGroup
 
     .EXAMPLE
     Get-ckpGroup -Name azure_public_westeurope
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-groups~v1.1
     #>
     [CmdletBinding(DefaultParameterSetName = 'Generic')]
     Param(
@@ -926,7 +1026,7 @@ Function Get-ckpGroup
         [int] $Offset
 
         ,[Parameter(ParameterSetName = 'Generic')]
-         [ValidateRange(1,500)]
+        [ValidateRange(1,500)]
         [int] $Limit
 
         ,[Parameter(ParameterSetName = 'Generic')]
@@ -957,6 +1057,9 @@ Function Add-ckpGroup
 
     .EXAMPLE
     Add-ckpGroup -Name azure_public_westeurope -Member $id1,$id2
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/add-group~v1.1
     #>
     [CmdletBinding()]
     Param(
@@ -984,7 +1087,7 @@ Function Add-ckpGroup
     Process
     {
         $body = @{
-            name = $Name
+            name    = $Name
             members = $Member
         }
 
@@ -1018,11 +1121,11 @@ Function Set-ckpGroup
     .PARAMETER Uid
     The uid of the group to change
 
-    .PARAMETER Member
-    The list of members the group shall have
+    .PARAMETER AddMember
+    The list of members (names or uids) to add to the group
 
-    .PARAMETER NewName
-    The new name for the group to be set
+    .PARAMETER RemoveMember
+    The list of members (names or uids) to remove from the group
 
     .PARAMETER Tags
     The list of tags to assign to the group
@@ -1031,7 +1134,13 @@ Function Set-ckpGroup
     Set-ckpGroup -Name azure_public_ips -NetName azure_public_2
 
     .EXAMPLE
-    Set-ckpGroup -Name azure_public_ips -Members $id1,$id2
+    Set-ckpGroup -Name azure_public_ips -AddMember $id1,$id2
+
+    .EXAMPLE
+    Set-ckpGroup -Name azure_public_ips -AddMember $id1,$id2 -RemoveMember $id3,$id4
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/set-group~v1.1
     #>
     [CmdletBinding(DefaultParameterSetName = 'Name')]
     Param(
@@ -1112,6 +1221,44 @@ Function Set-ckpGroup
 
 Function Get-ckpObject
 {
+    <#
+    .SYNOPSIS
+    Return a specific firewall object or all firewall objects
+    Return firewall objects of a specific type
+
+    .DESCRIPTION
+    Generic function to return any firewall object. Function can filter by type, name etc.
+
+    .PARAMETER Name
+    The name of the object to return
+
+    .PARAMETER UID
+    The uid of the object to return
+
+    .PARAMETER Type
+    The object type on which shall be filtered
+    If specified only objects of the specified type will be returned
+
+    .PARAMETER Offset
+    The offset of itmes to retrieve, can be used to retrieve objects beyond the limit of
+    500 objects per call
+
+    .PARAMETER Limit
+    The maximal amount of objects to return which one call
+
+    .PARAMETER GetAll
+    Switch if set, multiple api calls with the specified limit are made
+    until all available objects are retrieved.
+
+    .EXAMPLE
+    Get-ckpObject
+
+    .EXAMPLE
+    Get-ckpObject -Type 'application-site'
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-objects~v1.1
+    #>
     [CmdletBinding(DefaultParameterSetName = 'Generic')]
     Param(
         [Parameter(ParameterSetName = 'Name')]
@@ -1156,6 +1303,29 @@ Function Get-ckpObject
 
 Function Get-ckpCommand
 {
+    <#
+    .SYNOPSIS
+    Returns all rest api commands which are supported by the api
+
+    .DESCRIPTION
+    Returns all the api commands wich are supported by the management api.
+    The name parameter can be used to filter the request with a prefix, Name is not a wildcard search but only a prefix match
+
+    .PARAMETER Name
+    The prefix to filter the command list by (e.g. get or show)
+
+    .EXAMPLE
+    Get-ckpCommand
+
+    .EXAMPLE
+    Get-ckpCommand -Name show
+
+     .EXAMPLE
+    Get-ckpCommand -Name show-networks
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-commands~v1.1
+    #>
     [CmdletBinding()]
     Param(
         [Parameter()]
@@ -1168,6 +1338,7 @@ Function Get-ckpCommand
     {
         throw "You are not logged in please run 'Connect-ckpSession'"
     }
+
     $requestParams = @{
         HostName  = $session.HostName
         Command   = 'show-commands'
@@ -1189,6 +1360,33 @@ Function Get-ckpCommand
 
 Function Get-ckpGateway
 {
+    <#
+    .SYNOPSIS
+    Returns a list of all firewall servers and gateways
+
+    .DESCRIPTION
+    Returns a list of all firewall servers and gateways
+
+    .PARAMETER Offset
+    The offset of itmes to retrieve, can be used to retrieve objects beyond the limit of
+    500 objects per call
+
+    .PARAMETER Limit
+    The maximal amount of objects to return which one call
+
+    .PARAMETER GetAll
+    Switch if set, multiple api calls with the specified limit are made
+    until all available objects are retrieved.
+
+    .EXAMPLE
+    Get-ckpGateway -Limit 10
+
+    .EXAMPLE
+    Get-ckpGateway -GetAll
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-gateways-and-servers~v1.1
+    #>
     [CmdletBinding()]
     Param(
         [Parameter()]
@@ -1229,6 +1427,8 @@ Function Get-ckpGateway
     }
     $response = Invoke-ckpWebRequest @requestParams
     $returnValue = $response
+
+    #Get All Logic to retrieve all objects even if greater than 500 limit
     if (($response -ne $null) -and (($response | Get-Member -MemberType NoteProperty -Name objects) -ne $null))
     {
         $returnValue = $response.objects
@@ -1254,7 +1454,31 @@ New-Alias -Name Get-ckpServer -Value Get-ckpGateway
 
 Function Get-ckpObjectUsage
 {
-     [CmdletBinding(DefaultParameterSetName = 'Uid')]
+    <#
+    .SYNOPSIS
+    Searches if the provided object is used in other objects (groups, rules) etc.
+
+    .DESCRIPTION
+    Searches for direct and inderect dependencies to the provided object
+    If object is part of a group or specific rules etc.
+    Usefull for checking if an object can be deleted without causing a conflict.
+
+    .PARAMETER Name
+    The name of the object for which the dependencies shall be found
+
+    .PARAMETER Uid
+    The uid of the object for which the depenencies shall be found
+
+    .EXAMPLE
+    Get-ckpObjectUsage -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
+
+    .EXAMPLE
+    Get-ckpObjectUsage -Name 'someObject'
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/where-used~v1.1
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Uid')]
     Param(
         [Parameter(Mandatory, ParameterSetName = 'Name')]
         [ValidateNotNullOrEmpty()]
@@ -1291,6 +1515,19 @@ Function Get-ckpObjectUsage
 
 Function Get-ckpValidation
 {
+    <#
+    .SYNOPSIS
+    Returns a list of all validations and inicdents
+
+    .DESCRIPTION
+    Returns a list of all validations and inicdents
+
+    .EXAMPLE
+    Get-ckpValidation
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-validations~v1.1
+    #>
     [CmdletBinding()]
     Param()
 
@@ -1310,6 +1547,39 @@ Function Get-ckpValidation
 
 Function Get-ckpPackage
 {
+    <#
+    .SYNOPSIS
+    Get a list of all policy package or a specific policy package
+
+    .DESCRIPTION
+    Retrieves a list of firewall policy packages or a specific policy package identified by name or uid.
+
+    .PARAMETER Name
+    Name of the policy package to retrieve
+
+    .PARAMETER UID
+    Uid of the policy package to retrieve
+
+    .PARAMETER Offset
+    The offset of itmes to retrieve, can be used to retrieve objects beyond the limit of
+    500 objects per call
+
+    .PARAMETER Limit
+    The maximal amount of objects to return which one call
+
+    .PARAMETER GetAll
+    Switch if set, multiple api calls with the specified limit are made
+    until all available objects are retrieved.
+
+    .EXAMPLE
+    Get-ckpPackage
+
+     .EXAMPLE
+    Get-ckpPackage -Name Standard
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-packages~v1.1
+    #>
     [CmdletBinding(DefaultParameterSetName = 'Generic')]
     Param(
         [Parameter(ParameterSetName = 'Name')]
@@ -1341,6 +1611,24 @@ Function Get-ckpPackage
 
 Function Get-ckpTask
 {
+    <#
+    .SYNOPSIS
+    Shows the current status of a firewall background task
+
+    .DESCRIPTION
+    Returns information and the status of a given background task
+    e.g. the publish operation of a session is excecuted in the backgorund and its status can be retrieved
+    with this command
+
+    .PARAMETER Id
+    The ID of the task
+
+    .EXAMPLE
+    Get-ckpTask -Id $taskId
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-task~v1.1
+    #>
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory)]
@@ -1373,6 +1661,25 @@ Function Get-ckpTask
 
 Function Install-ckpPolicy
 {
+    <#
+    .SYNOPSIS
+    Installs a given policy package on a given target
+
+    .DESCRIPTION
+    Installs all rules on the firewalls itself. A policy package and a target can be specified
+
+    .PARAMETER Package
+    The name of the policy package which shall be installed (e.g. standard)
+
+    .PARAMETER Target
+    A list of target servers to which the policy package shall be installed to
+
+    .EXAMPLE
+    Install-ckpPolicy -Package Standard -Target 'corporate-gateway'
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/install-policy~v1.1
+    #>
     [CmdletBinding()]
     Param(
         [Parameter()]

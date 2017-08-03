@@ -5,7 +5,10 @@ Describe "Module" -Tags "Unit", "Build" {
     $moduleCommands = Get-Command -Module ($Script:Module.Name)
     Foreach ($moduleCommand in $moduleCommands)
     {
-
+        if ($moduleCommand.CommandType -ne 'Function')
+        {
+            continue
+        }
         Context $moduleCommand.Name {
 
             It "$($moduleCommand.Name) should be an advanced function" {
@@ -71,7 +74,7 @@ InModuleScope $Script:Module {
         }
 
         It "should set the internal session object after successfull login" {
-            $credential = [PSCredential]::new('someuser',(ConvertTo-SecureString -String 'somePassword' -AsPlainText -Force))
+            $credential = [PSCredential]::new('someuser', (ConvertTo-SecureString -String 'somePassword' -AsPlainText -Force))
             $null = Connect-ckpSession -HostName 'someHost' -Credential $credential
             Get-ckpInternalSession | Should Not BeNullOrEmpty
         }
@@ -90,7 +93,7 @@ InModuleScope $Script:Module {
         }
 
         It 'should reset the internal session object to null' {
-            $credential = [PSCredential]::new('someuser',(ConvertTo-SecureString -String 'somePassword' -AsPlainText -Force))
+            $credential = [PSCredential]::new('someuser', (ConvertTo-SecureString -String 'somePassword' -AsPlainText -Force))
             $null = Connect-ckpSession -HostName 'someHost' -Credential $credential
             Disconnect-ckpSession
             Get-ckpInternalSession | Should BeNullOrEmpty

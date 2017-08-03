@@ -1,6 +1,12 @@
+<#
+.SYNOPSIS
+Test script to test the different functionalities of the vfCheckpointFirewall module
+This script is ment as a testing script and is not intended to be run as a whole!!
+#>
 #Requires -Version 4
-$userCredential = Get-Credential -UserName apiadmin
 
+
+#Set current path
 $baseScriptPath = $psScriptRoot
 if (($psEditor -ne $null) -and ([string]::IsNullOrEmpty($baseScriptPath)))
 {
@@ -11,99 +17,56 @@ elseif (($psISE -ne $null) -and (Tes-Path -Path $psISE.CurrentFile.FullPath))
     $baseScriptPath = ([Io.FileInfo]$psISE.CurrentFile.FullPath).Directory.FullName
 }
 
+# Load Module
 Get-Module -Name vfCheckpointFirewall | Remove-Module -Force
 Import-Module -Name $baseScriptPath\vfCheckpointFirewall.psd1
 
+
+# Login
+$userCredential = Get-Credential -UserName apiadmin
 $HostName = "10.221.4.6"
 Connect-ckpSession -HostName $HostName -Credential $userCredential -ContinueLastSession
 
+
 #region session tests
 $sessions = Get-ckpSession -Limit 500 -GetAll
-
-$sessions | % { Undo-ckpSession -Uid $_}
-
 $sessions.Count
-$sessions[0] | fl
+$sessions | Undo-ckpSession
+$sessions.Count
 
 Switch-ckpSession -Uid 'e72455c5-07e5-4b07-9e91-162e2a33bd8c'
 Reset-ckpSessionTimeout
 Disconnect-ckpSession
-#endregion
+Undo-ckpSession -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
 
+Publish-ckpSession
+#endregion session tests
+
+#region Gateaway servers
 Get-ckpGateway -GetAll
 Get-ckpServer
 
 $d = Get-ckpCommand -Name 'show'
 Get-ckpObject -Type 'application-site'
+#end region gateways
 
+
+#region networks
 $networks = Get-ckpNetwork -Limit 500 -GetAll
-
 Get-ckpObjectUsage -Uid $networks[0].uid
+$networks | Select-Object -First 50 | Format-Table name, subnet4, mask-length4, subnet-mask -AutoSize
 
-$networks | Select -First 50 | Format-Table name, subnet4, mask-length4, subnet-mask -AutoSize
+Remove-ckpNetwork -Uid $lastNetwork.uid
+#endregion networks
 
-$azurePath = Join-Path -Path $env:USERPROFILE -ChildPath "desktop/PublicIPs_20170731.xml"
-[xml]$azureXml = Get-Content -Path $azurePath
-$nets = @()
-$azureXml.AzurePublicIpAddresses.Region | Where-Object {$_.Name -ilike 'europe*'} | Foreach-Object {
-    $region = $_
-    Foreach ($range in $region.IpRange)
-    {
-        $match = $range.Subnet | Select-String -Pattern '(\d{1,4}\.\d{1,4}\.\d{1,4}\.\d{1,4})\/(\d{2})?'
-        $nets += [PsCustomObject]@{
-            name       = "azure_public_$($region.name)_$($match.matches.Groups[1].value)"
-            Subnet     = $match.matches.Groups[1].value
-            MaskLength = $match.matches.Groups[2].value
-        }
-    }
-}
-
-$missingNetworks = Compare-Object -ReferenceObject $nets -DifferenceObject (
-    $networks | Select-Object name, @{n = "Subnet";e = {$_subnet4}}, @{n = "MaskLenght";e = {$_.'mask-length4'}}
-)
-$missingNetworks.Count
-
-Foreach ($missingNet in $missingNetworks)
-{
-    $missingNet.InputObject | Add-ckpNetwork
-}
-
+#region groups
 $groupName = 'azure_public_we'
 $group = Get-ckpGroup -Name $groupName
-
 if (-Not $group)
 {
     $member = $networks | Where-Object {$_.name -ilike 'azure_public_europewest*'} | Select-Object -ExpandProperty uid
     Add-ckpGroup -Name $groupName -Member $member
 }
 $group.members.Count
-
-
-
-
-Publish-ckpSession
-
-Disconnect-ckpSession
-
-
-$lastNetwork = $networks[-1]
-
-$lastNetwork
-
-$member = $group.members.uid
-$newMember = $member[1..$($member.count - 1)]
-$lastMember = $member[-1]
-
-Set-ckpGroup -Name $groupName -Member $newMember
-
-
-$sess = Get-ckpSession
-
-$sess[0]
-
-Undo-ckpSession -Uid 6d8aff8d-b242-4848-9c71-8becc8b77be8
-
-Remove-ckpNetwork -Uid $lastNetwork.uid
-
-
-Get-ckpPackage
+#Set-ckpGroup -Name $groupName -Member $newMember
+#endregion groups
