@@ -23,7 +23,7 @@ Import-Module -Name $baseScriptPath\vfCheckpointFirewall.psd1
 
 
 # Login
-$userCredential = Get-Credential -UserName apiadmin
+$userCredential = Get-Credential apiadmin
 $HostName = "10.221.4.6"
 Connect-ckpSession -HostName $HostName -Credential $userCredential -ContinueLastSession
 

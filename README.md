@@ -58,7 +58,7 @@ All Cmdlets of the module have the _ckp_ prefix to distinguish them from other m
   * If you do not publish the changes they will not be available for others and can not be installed on the firewalls/servers/gateways.
 * Install the policy on the firewalls
 
-Exmaple
+Example
 
 ```powershell
 Import-Module -Name vfCheckpointFirewall
