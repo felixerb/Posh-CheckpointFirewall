@@ -127,16 +127,25 @@ Function Invoke-ckpWebRequest
         $errorReader = New-Object System.IO.StreamReader($errorStream)
         $errorReader.BaseStream.Position = 0
         $errorReader.DiscardBufferedData()
-        $errorResponse = ($errorReader.ReadToEnd()) | ConvertFrom-Json
+        $errorResponse = ($errorReader.ReadToEnd())
+        if (-Not([string]::IsNullOrEmpty($errorResponse)))
+        {
+            try{
+                $errorResponseContent = $errorResponse | ConvertFrom-Json
+            }catch{
+
+            }
+        }
 
         if ($httpError.Exception.Response.StatusCode -eq [Net.HttpStatusCode]::NotFound)
         {
             return $null
         }
-        else
+        elseif ($errorResponseContent -ne $null)
         {
-            #throw $httpError
-            throw "Error ($([int]$httpError.Exception.Response.StatusCode) - $($httpError.Exception.Response.StatusCode.ToString())): Code '$($errorResponse.code)' Message: '$($errorResponse.message)'"
+            throw "Error ($([int]$httpError.Exception.Response.StatusCode) - $($httpError.Exception.Response.StatusCode.ToString())): Code '$($errorResponseContent.code)' Message: '$($errorResponseContent.message)'"
+        }else{
+            throw $httpError
         }
     }
 }
@@ -560,6 +569,7 @@ Function Switch-ckpSession
     $Script:SessionUID = $response.uid
     return $response
 }
+
 Function Get-internalObject
 {
     <#
@@ -693,10 +703,19 @@ Function Get-internalObject
     }
     $response = Invoke-ckpWebRequest @requestParams
     $returnValue = $response
+    if ($response -eq $null)
+    {
+        # if response is null then get-member will cause an error therefore return the empty response
+        return $returnValue
+    }
+
     $childrenNode = $response | Get-Member -MemberType NoteProperty |
                     Where-Object {($_.Name -ieq 'objects') -or ($_.Name -ieq $CommandPluralName)} |
                     Select-Object -First 1 | Select-Object -ExpandProperty Name
-    if (($response -ne $null) -and ($childrenNode -ne $null))
+
+    #if a single object of a specific type will be returned it will always have a sub element of the plural name
+    #therefore we need to check if the $resposne.type is the command singluar name then it is not an object array but a single return
+    if (($response -ne $null) -and ($childrenNode -ne $null) -and $($response.type -ne $CommandSingularName))
     {
         $returnValue = $response.$($childrenNode)
         while (
@@ -1219,6 +1238,135 @@ Function Set-ckpGroup
     }
 }
 
+Function Get-ckpHost
+{
+    <#
+    .SYNOPSIS
+    Get all host objects or specific host by name or uid
+
+    .DESCRIPTION
+    Retrieves all host objects or specific one by name or id
+    Detailed information are returned only when requesting specific object
+
+    .PARAMETER Name
+    The name of the specific host to retrieve
+
+    .PARAMETER UID
+    The uid of the specific host to retrieve
+
+    .PARAMETER Offset
+    The offset of itmes to retrieve, can be used to retrieve objects beyond the limit of
+    500 objects per call
+
+    .PARAMETER Limit
+    The maximal amount of objects to return which one call
+
+    .PARAMETER GetAll
+    Switch if set, multiple api calls with the specified limit are made
+    until all available objects are retrieved.
+
+    .EXAMPLE
+    Get-ckpHost -Limit 500 -GetAll
+
+    .EXAMPLE
+    Get-ckpHost -Name azure_public_westeurope
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/show-hosts~v1.1
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'Generic')]
+    Param(
+        [Parameter(ParameterSetName = 'Name')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+
+        ,[Parameter(ParameterSetName = 'UID')]
+        [string] $UID
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [ValidateNotNull()]
+        [int] $Offset
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [ValidateRange(1,500)]
+        [int] $Limit
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [switch] $GetAll
+    )
+
+    return Get-internalObject @PSBoundParameters -CommandSingularName 'host' -CommandPluralName 'hosts'
+}
+
+Function Add-ckpHost
+{
+    <#
+    .SYNOPSIS
+    Creates a new host object
+
+    .DESCRIPTION
+    Creates a new host object by specifying a name and a ip address
+    Changes need to be pulished to take affect.
+
+    .PARAMETER Name
+    The name of the host to be created
+
+    .PARAMETER IpAddress
+    The Ip Address of the host to be added
+
+    .PARAMETER Tags
+    One or more tags which will be assigend to the host
+
+    .EXAMPLE
+    Add-ckpHost -Name 'sdeurvf7892.eur.corp.vattenfall.com' -IpAddress '144.27.132.71'
+
+    .LINK
+    https://sc1.checkpoint.com/documents/latest/APIs/#web/add-host~v1.1
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+
+        ,[Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [string] $IpAddress
+
+        ,[Parameter()]
+        [ValidateNotNull()]
+        [string[]] $Tags
+    )
+    Begin
+    {
+        $session = Get-ckpInternalSession
+        if (-Not $session)
+        {
+            throw "You are not logged in please run 'Connect-ckpSession'"
+        }
+    }
+
+    Process
+    {
+        $body = @{
+            name         = $Name
+            "ip-address" = $IpAddress
+        }
+
+        if (($Tags -ne $null) -and ($Tags.Count -gt 0))
+        {
+            $body['tags'] = $Tags
+        }
+
+        $requestParams = @{
+            HostName  = $session.HostName
+            Command   = 'add-host'
+            SessionID = $session.SessionID
+            Body      = $body
+        }
+        return Invoke-ckpWebRequest @requestParams
+    }
+}
 Function Get-ckpObject
 {
     <#

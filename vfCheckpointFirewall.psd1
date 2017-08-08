@@ -38,6 +38,8 @@
         ,'Get-ckpPackage'
         ,'Install-ckpPolicy'
         ,'Get-ckpTask'
+        ,'Get-ckpHost'
+        ,'Add-ckpHost'
     )
     CmdletsToExport   = @()
     # VariablesToExport = @()
