@@ -679,11 +679,11 @@ Function Get-internalObject
         }
         else
         {
-            if ($Offset -ne $null)
+            if ($Offset -gt 0)
             {
                 $body['offset'] = $Offset
             }
-            if ($Limit -ne $null)
+            if ($Limit -gt 0)
             {
                 $body['limit'] = $Limit
             }
@@ -717,21 +717,24 @@ Function Get-internalObject
     #therefore we need to check if the $resposne.type is the command singluar name then it is not an object array but a single return
     if (($response -ne $null) -and ($childrenNode -ne $null) -and $($response.type -ne $CommandSingularName))
     {
-        $returnValue = $response.$($childrenNode)
+        $returnArray = New-Object System.Collections.ArrayList
+        $returnArray.AddRange($response.$($childrenNode))
+
         while (
             ($GetAll) -and
             (
-                (($Limit -ne $null) -and ($response.$($childrenNode).Count -ge $Limit)) -or
-                (($Limit -eq $null) -and ($response.$($childrenNode).Count -ge 50))
+                (($Limit -gt 0) -and ($response.$($childrenNode).Count -ge $Limit)) -or
+                (($Limit -eq 0) -and ($response.$($childrenNode).Count -ge 50))
             )
         )
         {
-            $requestParams['Body']['offset'] = $response.$($childrenNode).Count
+            $requestParams['Body']['offset'] = $returnArray.Count
             $requestParams['Body']['limit'] = 500
             $Limit = 500
             $response = Invoke-ckpWebRequest @requestParams
-            $returnValue += $response.$($childrenNode)
+            $returnArray.AddRange($response.$($childrenNode))
         }
+        $returnValue = $returnArray.ToArray()
     }
     return $returnValue
 }

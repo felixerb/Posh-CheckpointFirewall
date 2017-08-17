@@ -63,6 +63,51 @@ InModuleScope $Script:Module {
         It 'should throw an error if not logged in' {
             { Get-internalObject -CommandSingularName network -CommandPluralName networks } | Should throw
         }
+
+        Mock -CommandName Invoke-ckpWebRequest -ModuleName $Script:Module -MockWith {
+            $returnValues = 0..1999 | ForEach-Object {
+                @{
+                    Name   = "Name$($_)"
+                    Uid    = "$($_)-$($_)-$($_)"
+                    Number = $_
+                }
+            }
+            $offset = 0
+            $limit = $returnValues.Count - 1
+
+            if ($Body.ContainsKey('offset'))
+            {
+                $offset = $Body.offset
+            }
+
+            if ($Body.ContainsKey('limit'))
+            {
+                $limit = $Body.limit
+            }
+
+            return [PsCustomObject]@{
+                objects = $returnValues[$offset..$($offset + $limit - 1)]
+            }
+        }
+
+        Mock -CommandName Get-ckpInternalSession -ModuleName $Script:Module -MockWith {
+            return @{
+                HostName     = 'someHost'
+                SessionID    = 'someGuid'
+                SessionUID   = 'someGuid'
+                SessionStart = (Get-Date)
+            }
+        }
+
+        It "should get all objects when using the GetAll switch" {
+            $objects = Get-internalObject -CommandSingularName network -CommandPluralName networks -GetAll
+            $objects.Count | Should Be 2000
+        }
+
+        It "should not retrieve the same object twice when using the GetAll switch" {
+            $objects = Get-internalObject -CommandSingularName network -CommandPluralName networks -GetAll
+            Compare-Object -ReferenceObject (0..1999) -DifferenceObject $objects.Number | Should BeNullOrEmpty
+        }
     }
 
     Describe 'Connect-ckpSession' {
