@@ -12,7 +12,7 @@ if (($psEditor -ne $null) -and ([string]::IsNullOrEmpty($baseScriptPath)))
 {
     $baseScriptPath = ([Io.FileInfo]$psEditor.GetEditorContext().CurrentFile.Path).Directory.FullName
 }
-elseif (($psISE -ne $null) -and (Tes-Path -Path $psISE.CurrentFile.FullPath))
+elseif (($psISE -ne $null) -and (Test-Path -Path $psISE.CurrentFile.FullPath))
 {
     $baseScriptPath = ([Io.FileInfo]$psISE.CurrentFile.FullPath).Directory.FullName
 }
