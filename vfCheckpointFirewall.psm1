@@ -879,6 +879,44 @@ Function Add-ckpNetwork
         [Parameter(ParameterSetName = 'v6')]
         [ValidateSet('disallow','allow')]
         [string] $Broadcast
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'v4')]
+        [Parameter(ParameterSetName = 'v6')]
+        [Boolean] $nat = $false
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'v4')]
+        [Parameter(ParameterSetName = 'v6')]
+        [String] $IPAddress
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'v4')]
+        [Parameter(ParameterSetName = 'v6')]
+        [String] $IP4Address
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'v4')]
+        [Parameter(ParameterSetName = 'v6')]
+        [String] $IP6Address
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'v4')]
+        [Parameter(ParameterSetName = 'v6')]
+        [ValidateSet('gateway','ip-address')]
+        [String] $HideBehind
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'v4')]
+        [Parameter(ParameterSetName = 'v6')]
+        [String] $InstallOn = "All"
+
+        ,[Parameter(ParameterSetName = 'Generic')]
+        [Parameter(ParameterSetName = 'v4')]
+        [Parameter(ParameterSetName = 'v6')]
+        [ValidateSet('hide','static')]
+        [String] $Method
+
     )
     Begin
     {
@@ -925,6 +963,32 @@ Function Add-ckpNetwork
         if (($Tags -ne $null) -and ($Tags.Count -gt 0))
         {
             $body['tags'] = $Tags
+        }
+
+        if($nat -eq $true) {
+            $natBody = @{"auto-rule" = "true"}
+            
+            if($IPAddress -ne $null) {
+                $natBody += @{"ip-address" = $IPAddress}
+            }
+            if($IP4Address -ne $null) {
+                $natBody += @{"ipv4-address" = $IP4Address}
+            }
+            if($IP6Address -ne $null) {
+                $natBody += @{"ipv6-address" = $IP6Address}
+            }
+            if($HideBehind -ne $null) {
+                $natBody += @{"hide-behind" = $HideBehind}
+            }
+            if($InstallOn -ne $null) {
+                $natBody += @{"install-on" = $InstallOn}
+            }
+            if($Method -ne $null) {
+                $natBody += @{"method" = $Method}
+            }
+
+            $body['nat-settings'] = $natBody
+
         }
 
         $requestParams = @{
