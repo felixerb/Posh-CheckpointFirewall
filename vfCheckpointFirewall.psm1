@@ -1,4 +1,4 @@
-[string] $Script:HostName = $null
+﻿[string] $Script:HostName = $null
 [string] $Script:SessionID = $null
 [string] $Script:SessionUID = $null
 
@@ -1153,7 +1153,7 @@ Function Add-ckpGroup
         [ValidateNotNullOrEmpty()]
         [string] $Name
 
-        ,[Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        ,[Parameter(ValueFromPipelineByPropertyName)]
         [ValidateNotNull()]
         [string[]] $Member
 
@@ -1172,9 +1172,15 @@ Function Add-ckpGroup
 
     Process
     {
-        $body = @{
-            name    = $Name
-            members = $Member
+        if($Member -eq $null) {
+            $body = @{
+                name    = $Name
+            }
+        } else {
+            $body = @{
+                name    = $Name
+                members = $Member
+            }
         }
 
         if (($Tags -ne $null) -and ($Tags.Count -gt 0))
@@ -1298,6 +1304,133 @@ Function Set-ckpGroup
         $requestParams = @{
             HostName  = $session.HostName
             Command   = 'set-group'
+            SessionID = $session.SessionID
+            Body      = $body
+        }
+        return Invoke-ckpWebRequest @requestParams
+    }
+}
+
+Function Add-ckpGroupWithExclusion
+{
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+
+        ,[Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNull()]
+        [string] $Except
+
+        ,[Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNull()]
+        [string] $Include
+
+        ,[Parameter()]
+        [ValidateNotNull()]
+        [string[]] $Tags
+    )
+    Begin
+    {
+        $session = Get-ckpInternalSession
+        if (-Not $session)
+        {
+            throw "You are not logged in please run 'Connect-ckpSession'"
+        }
+    }
+
+    Process
+    {
+        $body = @{
+            name    = $Name
+            except  = $Except
+            include = $Include
+        }
+
+        if (($Tags -ne $null) -and ($Tags.Count -gt 0))
+        {
+            $body['tags'] = $Tags
+        }
+
+        $requestParams = @{
+            HostName  = $session.HostName
+            Command   = 'add-group-with-exclusion'
+            SessionID = $session.SessionID
+            Body      = $body
+        }
+        return Invoke-ckpWebRequest @requestParams
+    }
+}
+
+Function Set-ckpGroupWithExclusion
+{
+        [CmdletBinding(DefaultParameterSetName = 'Name')]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Name
+
+       ,[Parameter(Mandatory, ParameterSetName = 'Uid')]
+        [ValidateNotNullOrEmpty()]
+        [string] $Uid
+
+       ,[Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
+        [Parameter(ParameterSetName = 'Uid')]
+        [string] $Except
+
+       ,[Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
+        [Parameter(ParameterSetName = 'Uid')]
+        [string] $Include
+
+       ,[Parameter(ParameterSetName = 'Name')]
+        [Parameter(ParameterSetName = 'Uid')]
+        [ValidateNotNull()]
+        [string] $NewName
+
+        ,[Parameter(ParameterSetName = 'Name')]
+        [Parameter(ParameterSetName = 'Uid')]
+        [ValidateNotNull()]
+        [string[]] $Tags
+    )
+    Begin
+    {
+        $session = Get-ckpInternalSession
+        if (-Not $session)
+        {
+            throw "You are not logged in please run 'Connect-ckpSession'"
+        }
+    }
+
+    Process
+    {
+        $body = @{
+            "$($PSCmdlet.ParameterSetName.ToLower())" = (Get-Variable -Name $($PSCmdlet.ParameterSetName) -ValueOnly)
+        }
+
+        if ([string]::IsNullOrEmpty($Except))
+        {
+            $body['except'] += $Except
+        }
+
+        if ([string]::IsNullOrEmpty($Include))
+        {
+            $body['include'] += $Include
+        }
+
+        if (-Not ([string]::IsNullOrEmpty($NewName)))
+        {
+            $body['new-name'] = $NewName
+        }
+
+        if (($Tags -ne $null) -and ($Tags.Count -gt 0))
+        {
+            $body['tags'] = $Tags
+        }
+
+        $requestParams = @{
+            HostName  = $session.HostName
+            Command   = 'set-group-with-exclusion'
             SessionID = $session.SessionID
             Body      = $body
         }

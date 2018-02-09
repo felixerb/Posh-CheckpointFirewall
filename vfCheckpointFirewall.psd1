@@ -1,4 +1,4 @@
-@{
+﻿@{
     RootModule        = 'vfCheckpointFirewall.psm1'
     ModuleVersion     = '1.1.3.3'
     GUID              = 'ef3c886d-72a2-4a6d-9720-1158504d3d79'
@@ -40,6 +40,8 @@
         ,'Get-ckpTask'
         ,'Get-ckpHost'
         ,'Add-ckpHost'
+        ,'Add-ckpGroupWithExclusion'
+        ,'Set-ckpGroupWithExclusion'
     )
     CmdletsToExport   = @()
     # VariablesToExport = @()
