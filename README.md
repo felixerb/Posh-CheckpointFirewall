@@ -1,4 +1,4 @@
-# vfCheckpointFirewall Powershell Module
+# Posh-CheckpointFirewall Powershell Module
 
 A Powershell module to interact with Checkpoint Firewall management servers.
 Module is a wrapper for the *REST* API of Checkpoint Management API.
@@ -25,7 +25,7 @@ A list of all implemented Cmdlets can be retrieved by inspecting the module
 (The module must already be imported for this).
 
 ```powershell
-Get-Command -Module vfCheckpointFirewall
+Get-Command -Module Posh-CheckpointFirewall
 ```
 
 Each Powershell Cmdlet has help configured to get details of the usage of the cmdlet.
@@ -61,7 +61,7 @@ All Cmdlets of the module have the _ckp_ prefix to distinguish them from other m
 Example
 
 ```powershell
-Import-Module -Name vfCheckpointFirewall
+Import-Module -Name Posh-CheckpointFirewall
 $firewallCredential = Get-Credential
 $firewallHost = 'someHostName'
 

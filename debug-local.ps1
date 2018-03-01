@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Test script to test the different functionalities of the vfCheckpointFirewall module
+Test script to test the different functionalities of the Posh-CheckpointFirewall module
 This script is ment as a testing script and is not intended to be run as a whole!!
 #>
 #Requires -Version 4
@@ -18,8 +18,8 @@ elseif (($psISE -ne $null) -and (Test-Path -Path $psISE.CurrentFile.FullPath))
 }
 
 # Load Module
-Get-Module -Name vfCheckpointFirewall | Remove-Module -Force
-Import-Module -Name $baseScriptPath\vfCheckpointFirewall.psd1
+Get-Module -Name Posh-CheckpointFirewall | Remove-Module -Force
+Import-Module -Name $baseScriptPath\Posh-CheckpointFirewall.psd1
 
 
 # Login
